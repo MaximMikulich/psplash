@@ -23,6 +23,7 @@
 #include "psplash-colors.h"
 #include "psplash-poky-img.h"
 #include "psplash-bar-img.h"
+#include "toldo-splash-img.h"
 #include "radeon-font.h"
 
 #define SPLIT_LINE_POS(fb)                                  \
@@ -72,10 +73,10 @@ psplash_draw_progress (PSplashFB *fb, int value)
   int x, y, width, height, barwidth;
 
   /* 4 pix border */
-  x      = ((fb->width  - BAR_IMG_WIDTH)/2) + 4 ;
-  y      = SPLIT_LINE_POS(fb) + 4;
-  width  = BAR_IMG_WIDTH - 8; 
-  height = BAR_IMG_HEIGHT - 8;
+  x      = ((fb->width  - BAR_IMG_WIDTH)/2);
+  y      = SPLIT_LINE_POS(fb);
+  width  = BAR_IMG_WIDTH; 
+  height = BAR_IMG_HEIGHT;
 
   if (value > 0)
     {
@@ -280,18 +281,18 @@ main (int argc, char** argv)
 
   /* Draw the Poky logo  */
   psplash_fb_draw_image (fb, 
-			 (fb->width  - POKY_IMG_WIDTH)/2, 
+			 (fb->width  - _IMG_WIDTH)/2, 
 #if PSPLASH_IMG_FULLSCREEN
-			 (fb->height - POKY_IMG_HEIGHT)/2,
+			 (fb->height - _IMG_HEIGHT)/2,
 #else
 			 (fb->height * PSPLASH_IMG_SPLIT_NUMERATOR
-			  / PSPLASH_IMG_SPLIT_DENOMINATOR - POKY_IMG_HEIGHT)/2,
+			  / PSPLASH_IMG_SPLIT_DENOMINATOR - _IMG_HEIGHT)/2,
 #endif
-			 POKY_IMG_WIDTH,
-			 POKY_IMG_HEIGHT,
-			 POKY_IMG_BYTES_PER_PIXEL,
-			 POKY_IMG_ROWSTRIDE,
-			 POKY_IMG_RLE_PIXEL_DATA);
+			 _IMG_WIDTH,
+			 _IMG_HEIGHT,
+			 _IMG_BYTES_PER_PIXEL,
+			 _IMG_ROWSTRIDE,
+			 _IMG_RLE_PIXEL_DATA);
 
   /* Draw progress bar border */
   psplash_fb_draw_image (fb, 
