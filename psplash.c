@@ -19,28 +19,21 @@
  */
 
 #include "psplash.h"
+#include "psplash-config.h"
+#include "psplash-colors.h"
 #include "psplash-poky-img.h"
 #include "psplash-bar-img.h"
 #include "radeon-font.h"
 
-/* Here you can define a message which will be displayed above the
- * progress bar.
- * The message can be either read from a file:
- *    Set MSG_FILE_PATH (and if needed MSG_FILE_{MAX_LEN,PREFIX})
- *    to display the first MSG_FILE_MAX_LEN characters
- *    of the first line from MSG_FILE_PATH as message.
- *    Additionally the content of MSG_FILE_PREFIX will be displayed
- *    before the read message. */
-#define MSG_FILE_PATH ""
-#define MSG_FILE_MAX_LEN 32
-#define MSG_FILE_PREFIX ""
-/* Or a fixed string can be used:
- *    If MSG_FILE is not set or not readable
- *    the content of MSG will be used as message. */
-#define MSG ""
+#define SPLIT_LINE_POS(fb)                                  \
+	(  (fb)->height                                     \
+	 - ((  PSPLASH_IMG_SPLIT_DENOMINATOR                \
+	     - PSPLASH_IMG_SPLIT_NUMERATOR)                 \
+	    * (fb)->height / PSPLASH_IMG_SPLIT_DENOMINATOR) \
+	)
 
 void
-psplash_exit (int signum)
+psplash_exit (int UNUSED(signum))
 {
   DBG("mark");
 
@@ -52,7 +45,7 @@ psplash_draw_msg (PSplashFB *fb, const char *msg)
 {
   int w, h;
 
-  psplash_fb_text_size (fb, &w, &h, &radeon_font, msg);
+  psplash_fb_text_size (&w, &h, &radeon_font, msg);
 
   DBG("displaying '%s' %ix%i\n", msg, w, h);
 
@@ -60,19 +53,17 @@ psplash_draw_msg (PSplashFB *fb, const char *msg)
 
   psplash_fb_draw_rect (fb, 
 			0, 
-			fb->height - (fb->height/6) - h, 
+			SPLIT_LINE_POS(fb) - h, 
 			fb->width,
 			h,
 			PSPLASH_BACKGROUND_COLOR);
 
   psplash_fb_draw_text (fb,
 			(fb->width-w)/2, 
-			fb->height - (fb->height/6) - h,
+			SPLIT_LINE_POS(fb) - h,
 			PSPLASH_TEXT_COLOR,
 			&radeon_font,
 			msg);
-
-  psplash_fb_flush (fb);
 }
 
 void
@@ -82,7 +73,7 @@ psplash_draw_progress (PSplashFB *fb, int value)
 
   /* 4 pix border */
   x      = ((fb->width  - BAR_IMG_WIDTH)/2) + 4 ;
-  y      = fb->height - (fb->height/6) + 4;
+  y      = SPLIT_LINE_POS(fb) + 4;
   width  = BAR_IMG_WIDTH - 8; 
   height = BAR_IMG_HEIGHT - 8;
 
@@ -106,19 +97,14 @@ psplash_draw_progress (PSplashFB *fb, int value)
 			    PSPLASH_BAR_COLOR);
     }
 
-  psplash_fb_flush (fb);
-
   DBG("value: %i, width: %i, barwidth :%i\n", value, 
 		width, barwidth);
 }
 
 static int 
-parse_command (PSplashFB *fb, char *string, int length) 
+parse_command (PSplashFB *fb, char *string)
 {
   char *command;
-  int   parsed=0;
-
-  parsed = strlen(string)+1;
 
   DBG("got cmd %s", string);
 	
@@ -189,14 +175,14 @@ psplash_main (PSplashFB *fb, int pipe_fd, int timeout)
       
       if (command[length-1] == '\0') 
 	{
-	  if (parse_command(fb, command, strlen(command))) 
+	  if (parse_command(fb, command))
 	    return;
 	  length = 0;
 	} 
       else if (command[length-1] == '\n') 
 	{
 	  command[length-1] = '\0';
-	  if (parse_command(fb, command, strlen(command))) 
+	  if (parse_command(fb, command))
 	    return;
 	  length = 0;
 	} 
@@ -219,58 +205,41 @@ int
 main (int argc, char** argv) 
 {
   char      *tmpdir;
-  int        pipe_fd, i = 0, angle = 0, ret = 0;
+  int        pipe_fd, i = 0, angle = 0, fbdev_id = 0, ret = 0;
   PSplashFB *fb;
   bool       disable_console_switch = FALSE;
-  bool       disable_message = FALSE;
-  bool       disable_progress_bar = FALSE;
-  bool       disable_logo = FALSE;
-  FILE      *fd_msg;
-  char      *str_msg;
-  
+
   signal(SIGHUP, psplash_exit);
   signal(SIGINT, psplash_exit);
   signal(SIGQUIT, psplash_exit);
 
-  while (++i < argc)
-    {
-      if (!strcmp(argv[i],"-n") || !strcmp(argv[i],"--no-console-switch"))
-        {
-	  disable_console_switch = TRUE;
-	  continue;
-	}
+  while (++i < argc) {
+    if (!strcmp(argv[i],"-n") || !strcmp(argv[i],"--no-console-switch"))
+      {
+        disable_console_switch = TRUE;
+        continue;
+      }
 
-      if (!strcmp(argv[i],"-m") || !strcmp(argv[i],"--no-message"))
-        {
-	  disable_message = TRUE;
-	  continue;
-	}
+    if (!strcmp(argv[i],"-a") || !strcmp(argv[i],"--angle"))
+      {
+        if (++i >= argc) goto fail;
+        angle = atoi(argv[i]);
+        continue;
+      }
 
-      if (!strcmp(argv[i],"-p") || !strcmp(argv[i],"--no-progress"))
-        {
-	  disable_progress_bar = TRUE;
-	  continue;
-	}
+    if (!strcmp(argv[i],"-f") || !strcmp(argv[i],"--fbdev"))
+      {
+        if (++i >= argc) goto fail;
+        fbdev_id = atoi(argv[i]);
+        continue;
+      }
 
-      if (!strcmp(argv[i],"-l") || !strcmp(argv[i],"--no-logo"))
-        {
-	  disable_logo = TRUE;
-	  continue;
-	}
-
-      if (!strcmp(argv[i],"-a") || !strcmp(argv[i],"--angle"))
-        {
-	  if (++i >= argc) goto fail;
-	  angle = atoi(argv[i]);
-	  continue;
-	}
-      
     fail:
       fprintf(stderr, 
-	      "Usage: %s [-n|--no-console-switch][-m|--no-message][-p|--no-progress][-l|--no-logo][-a|--angle <0|90|180|270>]\n",
-	      argv[0]);
+              "Usage: %s [-n|--no-console-switch][-a|--angle <0|90|180|270>][-f|--fbdev <0..9>]\n", 
+              argv[0]);
       exit(-1);
-    }
+  }
 
   tmpdir = getenv("TMPDIR");
 
@@ -282,10 +251,10 @@ main (int argc, char** argv)
   if (mkfifo(PSPLASH_FIFO, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP))
     {
       if (errno!=EEXIST) 
-	{
-	  perror("mkfifo");
-	  exit(-1);
-	}
+	    {
+	      perror("mkfifo");
+	      exit(-1);
+	    }
     }
 
   pipe_fd = open (PSPLASH_FIFO,O_RDONLY|O_NONBLOCK);
@@ -299,67 +268,46 @@ main (int argc, char** argv)
   if (!disable_console_switch)
     psplash_console_switch ();
 
-  if ((fb = psplash_fb_new(angle)) == NULL) {
+  if ((fb = psplash_fb_new(angle,fbdev_id)) == NULL)
+    {
 	  ret = -1;
 	  goto fb_fail;
-  }
+    }
 
   /* Clear the background with #ecece1 */
   psplash_fb_draw_rect (fb, 0, 0, fb->width, fb->height,
                         PSPLASH_BACKGROUND_COLOR);
 
   /* Draw the Poky logo  */
-  if (!disable_logo) {
-    psplash_fb_draw_image (fb,
-      (fb->width  - POKY_IMG_WIDTH)/2,
-      ((fb->height * 5) / 6 - POKY_IMG_HEIGHT)/2,
-      POKY_IMG_WIDTH,
-      POKY_IMG_HEIGHT,
-      POKY_IMG_BYTES_PER_PIXEL,
-      POKY_IMG_RLE_PIXEL_DATA);
-  }
+  psplash_fb_draw_image (fb, 
+			 (fb->width  - POKY_IMG_WIDTH)/2, 
+#if PSPLASH_IMG_FULLSCREEN
+			 (fb->height - POKY_IMG_HEIGHT)/2,
+#else
+			 (fb->height * PSPLASH_IMG_SPLIT_NUMERATOR
+			  / PSPLASH_IMG_SPLIT_DENOMINATOR - POKY_IMG_HEIGHT)/2,
+#endif
+			 POKY_IMG_WIDTH,
+			 POKY_IMG_HEIGHT,
+			 POKY_IMG_BYTES_PER_PIXEL,
+			 POKY_IMG_ROWSTRIDE,
+			 POKY_IMG_RLE_PIXEL_DATA);
 
   /* Draw progress bar border */
-  if (!disable_progress_bar) {
-	  psplash_fb_draw_image (fb, 
-				 (fb->width  - BAR_IMG_WIDTH)/2, 
-				 fb->height - (fb->height/6), 
-				 BAR_IMG_WIDTH,
-				 BAR_IMG_HEIGHT,
-				 BAR_IMG_BYTES_PER_PIXEL,
-				 BAR_IMG_RLE_PIXEL_DATA);
+  psplash_fb_draw_image (fb, 
+			 (fb->width  - BAR_IMG_WIDTH)/2, 
+			 SPLIT_LINE_POS(fb),
+			 BAR_IMG_WIDTH,
+			 BAR_IMG_HEIGHT,
+			 BAR_IMG_BYTES_PER_PIXEL,
+			 BAR_IMG_ROWSTRIDE,
+			 BAR_IMG_RLE_PIXEL_DATA);
 
-	  psplash_draw_progress (fb, 0);
-  }
+  psplash_draw_progress (fb, 0);
 
-  /* Draw message from file or defined MSG */
-  if(!disable_message) {
-    fd_msg = fopen (MSG_FILE_PATH, "r");
-    if (fd_msg==NULL) {
-      psplash_draw_msg (fb, MSG);
-    } else {
-      str_msg = (char*) malloc (
-                (MSG_FILE_MAX_LEN + strlen(MSG_FILE_PREFIX) + 1)*sizeof(char));
-      if (str_msg != NULL && fgets (str_msg, MSG_FILE_MAX_LEN, fd_msg)!=NULL) {
-        if (strlen (MSG_FILE_PREFIX) > 0) {
-          /* if MSG_FILE_PREFIX is set, prepend it to str_msg */
-          memmove (str_msg + strlen(MSG_FILE_PREFIX) + 1, str_msg, strlen(str_msg));
-          strcpy (str_msg, MSG_FILE_PREFIX);
-          /* replace \0 after MSG_FILE_PREFIX with a space */
-          str_msg[strlen(MSG_FILE_PREFIX)] = ' ';
-        }
-        psplash_draw_msg (fb, str_msg);
-        free (str_msg);
-      } else {
-        /* MSG_FILE_PATH is empty (or malloc failed)
-         *    so display MSG_FILE_PREFIX only */
-        psplash_draw_msg (fb, MSG_FILE_PREFIX);
-      }
-      fclose (fd_msg);
-    }
-  }
-
-  psplash_fb_flush (fb);
+#ifdef PSPLASH_STARTUP_MSG
+  psplash_draw_msg (fb, PSPLASH_STARTUP_MSG);
+#endif
 
   psplash_main (fb, pipe_fd, 0);
 
